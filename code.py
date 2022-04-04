@@ -5,6 +5,7 @@ import terminalio
 import board
 import busio
 import struct
+import displayio
 import adafruit_bme680
 import adafruit_ds3231
 import adafruit_24lc32
@@ -69,8 +70,15 @@ eeprom = adafruit_24lc32.EEPROM_I2C(i2c,address=0x57)
 
 #Setup MagTag
 magtag = MagTag()
+
+#Powersaving settings
 magtag.peripherals.neopixels.fill((0,0,0))
 magtag.peripherals.neopixels_disable    = True
+magtag.peripherals.speaker_disable      = True
+
+#Setup display
+display     = magtag.display
+group       = displayio.Group()
 
 #Read current state of device
 now         = hw_rtc.datetime
@@ -138,6 +146,8 @@ magtag.set_text("Temperature = {:.02f} C".format(temp),     auto_refresh = False
 magtag.set_text("Humidity =   {:.02f} %".format(hum),       auto_refresh = False,index=3)
 magtag.set_text("Pressure    = {:.01f} hPa".format(pres),   auto_refresh = False,index=4)
 magtag.set_text("Gas  = {:d} Ohm".format(int(gas)),         auto_refresh = False,index=5)
+
+#display.show(group)
 
 magtag.refresh()
 
