@@ -9,6 +9,10 @@ import displayio
 import adafruit_bme680
 import adafruit_ds3231
 import adafruit_24lc32
+import adafruit_requests
+import wifi
+import socketpool
+import ipaddress
 
 #Define some important constants
 max_data    = 24
@@ -58,6 +62,13 @@ def get_min(tag,eep,Bytes=4):
 #Wake up alarm on Pin A
 BA_alarm    = alarm.pin.PinAlarm(board.BUTTON_A,value=False,pull=True)
 
+#Setup wifi
+from secrets import secrets
+wifi.radio.connect(secrets["ssid"], secrets["password"])
+pool = socketpool.SocketPool(wifi.radio)
+requests = adafruit_requests.Session(pool)
+TEXT_URL = "http://wifitest.adafruit.com/testwifi/index.html"
+
 #Set all I2C devices
 i2c         = busio.I2C(board.SCL,board.SDA,frequency=100000)
 bme         = adafruit_bme680.Adafruit_BME680_I2C(i2c)
@@ -87,6 +98,14 @@ hum         = bme.humidity
 pres        = bme.pressure
 gas         = bme.gas
 bat         = magtag.peripherals.battery
+
+URL         = "http://192.168.2.119:8086/api/v2/write?org={}&bucket={}&precision=ns".format(secrets["influx_org"],secrets["influx_bucket"])
+
+header      = {"Authorization": "Token {}".format(secrets["influx_token"]),
+                "Content-Type": "text/plain; charset=utf-8",
+                "Accept": "application/json"}
+data        = "magtag,sensor_id=BME688 temperature={},humidity={},pressure={},gas={},bat={} ".format(temp,hum,pres,gas,bat)
+requests.post(URL,headers=header,data=data)
 
 print(now)
 print(temp)
