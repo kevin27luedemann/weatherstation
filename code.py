@@ -16,7 +16,7 @@ import ipaddress
 
 #Define some important constants
 max_data    = 24
-sleep_time  = 120
+sleep_time  = 10
 id_tag      = {"temp":0,
                 "hum":1,
                "pres":2,
@@ -105,7 +105,10 @@ header      = {"Authorization": "Token {}".format(secrets["influx_token"]),
                 "Content-Type": "text/plain; charset=utf-8",
                 "Accept": "application/json"}
 data        = "magtag,sensor_id=BME688 temperature={},humidity={},pressure={},gas={},bat={} ".format(temp,hum,pres,gas,bat)
-requests.post(URL,headers=header,data=data)
+try:
+    requests.post(URL,headers=header,data=data)
+except:
+    print("post did not work")
 
 print(now)
 print(temp)
