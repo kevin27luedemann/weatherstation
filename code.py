@@ -13,8 +13,14 @@ import adafruit_requests
 import wifi
 import socketpool
 import ipaddress
+from secrets import secrets
 
 #Define some important constants
+URL         = "http://192.168.2.119:8086/api/v2/write?org={}&bucket={}&precision=ns".format(secrets["influx_org"],secrets["influx_bucket"])
+
+header      = {"Authorization": "Token {}".format(secrets["influx_token"]),
+                "Content-Type": "text/plain; charset=utf-8",
+                "Accept": "application/json"}
 max_data    = 24
 sleep_time  = 10
 id_tag      = {"temp":0,
@@ -63,11 +69,9 @@ def get_min(tag,eep,Bytes=4):
 BA_alarm    = alarm.pin.PinAlarm(board.BUTTON_A,value=False,pull=True)
 
 #Setup wifi
-from secrets import secrets
 wifi.radio.connect(secrets["ssid"], secrets["password"])
 pool = socketpool.SocketPool(wifi.radio)
 requests = adafruit_requests.Session(pool)
-TEXT_URL = "http://wifitest.adafruit.com/testwifi/index.html"
 
 #Set all I2C devices
 i2c         = busio.I2C(board.SCL,board.SDA,frequency=100000)
@@ -90,39 +94,6 @@ magtag.peripherals.speaker_disable      = True
 #Setup display
 display     = magtag.display
 group       = displayio.Group()
-
-#Read current state of device
-now         = hw_rtc.datetime
-temp        = bme.temperature
-hum         = bme.humidity
-pres        = bme.pressure
-gas         = bme.gas
-bat         = magtag.peripherals.battery
-
-URL         = "http://192.168.2.119:8086/api/v2/write?org={}&bucket={}&precision=ns".format(secrets["influx_org"],secrets["influx_bucket"])
-
-header      = {"Authorization": "Token {}".format(secrets["influx_token"]),
-                "Content-Type": "text/plain; charset=utf-8",
-                "Accept": "application/json"}
-data        = "magtag,sensor_id=BME688 temperature={},humidity={},pressure={},gas={},bat={} ".format(temp,hum,pres,gas,bat)
-try:
-    requests.post(URL,headers=header,data=data)
-except:
-    print("post did not work")
-
-print(now)
-print(temp)
-print(hum)
-print(pres)
-print(gas)
-print(bat)
-
-if now.tm_min <= sleep_time/60.:
-    eeprom[slice_pos(id_tag["temp"],int(now.tm_hour))]  = packf(temp)
-    eeprom[slice_pos(id_tag["hum"], int(now.tm_hour))]  = packf(hum)
-    eeprom[slice_pos(id_tag["pres"],int(now.tm_hour))]  = packf(pres)
-    eeprom[slice_pos(id_tag["gas"], int(now.tm_hour))]  = packf(gas)
-    eeprom[slice_pos(id_tag["bat"], int(now.tm_hour))]  = packf(bat)
 
 mid_x = magtag.graphics.display.width // 2 - 1
 magtag.add_text( #Battery
@@ -161,23 +132,69 @@ magtag.add_text( #Gas
     text_anchor_point=(1,0),
     is_data=False,
 )
+#Initial read
+for i in range(3):
+    temp        = bme.temperature
+    hum         = bme.humidity
+    pres        = bme.pressure
+    gas         = bme.gas
+    bat         = magtag.peripherals.battery
+    time.sleep(1)
 
-magtag.set_text("{}.{}.{} {:02}:{:02}:{:02}".format(now.tm_mday, now.tm_mon, now.tm_year, now.tm_hour, now.tm_min, now.tm_sec),                auto_refresh = False,index=1)
-magtag.set_text("Battery     = {:.02f} V".format(bat),      auto_refresh = False,index=0)
-magtag.set_text("Temperature = {:.02f} C".format(temp),     auto_refresh = False,index=2)
-magtag.set_text("Humidity =   {:.02f} %".format(hum),       auto_refresh = False,index=3)
-magtag.set_text("Pressure    = {:.01f} hPa".format(pres),   auto_refresh = False,index=4)
-magtag.set_text("Gas  = {:d} Ohm".format(int(gas)),         auto_refresh = False,index=5)
+last_sec = 0
+while True:
+    now         = hw_rtc.datetime
+    if last_sec != now.tm_sec:
+        #Read current state of device
+        temp        = bme.temperature
+        hum         = bme.humidity
+        pres        = bme.pressure
+        gas         = bme.gas
+        bat         = magtag.peripherals.battery
 
-#display.show(group)
+        data        = "magtag,sensor_id=BME688 temperature={},humidity={},pressure={},gas={},bat={} ".format(temp,hum,pres,gas,bat)
+        try:
+            requests.post(URL,headers=header,data=data,timeout=2)
+        except:
+            print("post did not work")
 
-magtag.refresh()
+        print(now)
+        print(temp)
+        print(hum)
+        print(pres)
+        print(gas)
+        print(bat)
 
-if isinstance(alarm.wake_alarm, alarm.pin.PinAlarm):
-    magtag.peripherals.neopixels_disable    = False
-    magtag.peripherals.neopixels.fill((127,63,63))
-    time.sleep(10)
+        magtag.set_text("{}.{}.{} {:02}:{:02}:{:02}".format(now.tm_mday, now.tm_mon, now.tm_year, now.tm_hour, now.tm_min, now.tm_sec),                auto_refresh = False,index=1)
+        magtag.set_text("Battery     = {:.02f} V".format(bat),      auto_refresh = False,index=0)
+        magtag.set_text("Temperature = {:.02f} C".format(temp),     auto_refresh = False,index=2)
+        if gas > 1e4:
+            magtag.set_text("Humidity =   {:.02f} %".format(hum),       auto_refresh = False,index=3)
+        elif gas > 1e3:
+            magtag.set_text("Humidity =  {:.02f} %".format(hum),       auto_refresh = False,index=3)
+        else:
+            magtag.set_text("Humidity = {:.02f} %".format(hum),       auto_refresh = False,index=3)
+        magtag.set_text("Pressure    = {:.01f} hPa".format(pres),   auto_refresh = False,index=4)
+        magtag.set_text("Gas  = {:d} Ohm".format(int(gas)),         auto_refresh = False,index=5)
 
-alarm.exit_and_deep_sleep_until_alarms(alarm.time.TimeAlarm(monotonic_time=time.monotonic() + sleep_time),  
-                                        BA_alarm
-                                        )
+        #display.show(group)
+
+        if not(now.tm_min%2) and now.tm_sec < 1:
+            magtag.refresh()
+        if now.tm_min == 0 and now.tm_sec < 1:
+            eeprom[slice_pos(id_tag["temp"],int(now.tm_hour))]  = packf(temp)
+            eeprom[slice_pos(id_tag["hum"], int(now.tm_hour))]  = packf(hum)
+            eeprom[slice_pos(id_tag["pres"],int(now.tm_hour))]  = packf(pres)
+            eeprom[slice_pos(id_tag["gas"], int(now.tm_hour))]  = packf(gas)
+            eeprom[slice_pos(id_tag["bat"], int(now.tm_hour))]  = packf(bat)
+
+        #if isinstance(alarm.wake_alarm, alarm.pin.PinAlarm):
+        #    magtag.peripherals.neopixels_disable    = False
+        #    magtag.peripherals.neopixels.fill((127,63,63))
+        #    time.sleep(10)
+
+        #alarm.exit_and_deep_sleep_until_alarms(alarm.time.TimeAlarm(monotonic_time=time.monotonic() + sleep_time),  
+        #                                        BA_alarm
+        #                                        )
+        last_sec = now.tm_sec
+    time.sleep(0.1)
