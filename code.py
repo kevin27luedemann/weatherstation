@@ -7,9 +7,9 @@ import busio
 import struct
 import displayio
 import adafruit_bme680
-import adafruit_ds3231
-import adafruit_24lc32
 import adafruit_requests
+import adafruit_ntp
+import rtc
 import wifi
 import socketpool
 import ipaddress
@@ -43,152 +43,172 @@ id_tag      = {"temp":0,
                 "gas":3,
                 "bat":4}
 
-try:
-    #Setup wifi
-    wifi.radio.connect(secrets["ssid"], secrets["password"])
-    pool = socketpool.SocketPool(wifi.radio)
-    requests = adafruit_requests.Session(pool)
+#try:
+#Setup wifi
+wifi.radio.connect(secrets["ssid"], secrets["password"])
+pool = socketpool.SocketPool(wifi.radio)
+pool2= socketpool.SocketPool(wifi.radio)
+requests = adafruit_requests.Session(pool)
 
-    #Set all I2C devices
-    i2c         = busio.I2C(board.SCL,board.SDA,frequency=100000)
-    bme         = adafruit_bme680.Adafruit_BME680_I2C(i2c)
+ntp = adafruit_ntp.NTP(pool2,server=secrets["server_ip"],tz_offset=+2)
+print(ntp.datetime)
+rtc.RTC().datetime    = ntp.datetime
 
-    #Setup MagTag
-    magtag = MagTag(rotation=90)
+#Set all I2C devices
+i2c         = busio.I2C(board.SCL,board.SDA,frequency=100000)
+bme         = adafruit_bme680.Adafruit_BME680_I2C(i2c)
 
-    #Powersaving settings
-    magtag.peripherals.neopixels.fill((0,0,0))
-    magtag.peripherals.neopixels_disable    = True
-    magtag.peripherals.speaker_disable      = True
+#Setup MagTag
+magtag = MagTag(rotation=90)
 
-    #Setup display
-    display     = magtag.display
-    group       = displayio.Group()
+#Powersaving settings
+magtag.peripherals.neopixels.fill((0,0,0))
+magtag.peripherals.neopixels_disable    = True
+magtag.peripherals.speaker_disable      = True
 
-    mid_x = magtag.graphics.display.width // 2 - 1
-    magtag.add_text( #Temperature inside
-        text_font=terminalio.FONT,
-        text_scale=2,
-        text_position=(10,20),
-        text_anchor_point=(0,0),
-        is_data=False
-    )
-    magtag.add_text( #Humidity inside
-        text_font=terminalio.FONT,
-        text_position=(10,50),
-        text_scale=2,
-        text_anchor_point=(0,0),
-        is_data=False
-    )
-    magtag.add_text( #Pressure inside
-        text_font=terminalio.FONT,
-        text_position=(10,80),
-        text_scale=1,
-        text_anchor_point=(0,0),
-        is_data=False
-    )
-    magtag.add_text( #Temperature outside
-        text_font=terminalio.FONT,
-        text_position=(magtag.graphics.display.width-10,20),
-        text_scale=2,
-        text_anchor_point=(1,0),
-        is_data=False
-    )
-    magtag.add_text( #Humidity outside
-        text_font=terminalio.FONT,
-        text_position=(magtag.graphics.display.width-10,50),
-        text_scale=2,
-        text_anchor_point=(1,0),
-        is_data=False
-    )
-    magtag.add_text( #Pressure outside
-        text_font=terminalio.FONT,
-        text_position=(magtag.graphics.display.width-10,80),
-        text_scale=1,
-        text_anchor_point=(1,0),
-        is_data=False
-    )
+#Setup display
+display     = magtag.display
+group       = displayio.Group()
 
-    #Initial read
-    for i in range(3):
+mid_x = magtag.graphics.display.width // 2 - 1
+magtag.add_text( #Temperature inside
+    text_font=terminalio.FONT,
+    text_scale=2,
+    text_position=(10,20),
+    text_anchor_point=(0,0),
+    is_data=False
+)
+magtag.add_text( #Humidity inside
+    text_font=terminalio.FONT,
+    text_position=(10,50),
+    text_scale=2,
+    text_anchor_point=(0,0),
+    is_data=False
+)
+magtag.add_text( #Pressure inside
+    text_font=terminalio.FONT,
+    text_position=(10,80),
+    text_scale=1,
+    text_anchor_point=(0,0),
+    is_data=False
+)
+magtag.add_text( #Temperature outside
+    text_font=terminalio.FONT,
+    text_position=(magtag.graphics.display.width-10,20),
+    text_scale=2,
+    text_anchor_point=(1,0),
+    is_data=False
+)
+magtag.add_text( #Humidity outside
+    text_font=terminalio.FONT,
+    text_position=(magtag.graphics.display.width-10,50),
+    text_scale=2,
+    text_anchor_point=(1,0),
+    is_data=False
+)
+magtag.add_text( #Pressure outside
+    text_font=terminalio.FONT,
+    text_position=(magtag.graphics.display.width-10,80),
+    text_scale=1,
+    text_anchor_point=(1,0),
+    is_data=False
+)
+magtag.add_text( #Date and time
+    text_font=terminalio.FONT,
+    text_scale=2,
+    text_position=(50,00),
+    text_anchor_point=(0,0),
+    is_data=False
+)
+
+#Initial read
+for i in range(3):
+    temp        = bme.temperature
+    hum         = bme.humidity
+    pres        = bme.pressure
+    gas         = bme.gas
+    time.sleep(1)
+
+def set_text():
+    I_data  = requests.post(URL_reci,headers=header_reci,data=temp_query.format("esszimmer"),timeout=2).content
+    I_data  = I_data.decode("ascii").split(",")
+    try:
+        temp_I      = float(I_data[-4])
+    except:
+        temp_I      = temp
+    magtag.set_text("I {:.02f} C".format(temp_I),     auto_refresh = False,index=0)
+
+    I_data  = requests.post(URL_reci,headers=header_reci,data=humi_query.format("esszimmer"),timeout=2).content
+    I_data  = I_data.decode("ascii").split(",")
+    try:
+        hum_I       = float(I_data[-4])
+    except:
+        hum_I       = hum
+    magtag.set_text("I {:.02f} %".format(hum_I),      auto_refresh = False,index=1)
+
+    I_data  = requests.post(URL_reci,headers=header_reci,data=pres_query.format("esszimmer"),timeout=2).content
+    I_data  = I_data.decode("ascii").split(",")
+    try:
+        pres_I      = float(I_data[-4])
+    except:
+        pres_I      = pres
+    magtag.set_text("I {:.01f} hPa".format(pres_I),   auto_refresh = False,index=2)
+
+    A_data  = requests.post(URL_reci,headers=header_reci,data=temp_query.format("draussen"),timeout=2).content
+    A_data  = A_data.decode("ascii").split(",")
+    try:
+        temp_A      = float(A_data[-4])
+    except:
+        temp_A      = -273.0
+    magtag.set_text("A {:.02f} C".format(temp_A),     auto_refresh = False,index=3)
+
+    A_data  = requests.post(URL_reci,headers=header_reci,data=humi_query.format("draussen"),timeout=2).content
+    A_data  = A_data.decode("ascii").split(",")
+    try:
+        hum_A       = float(A_data[-4])
+    except:
+        hum_A       = 0.0
+    magtag.set_text("A {:.02f} %".format(hum_A),      auto_refresh = False,index=4)
+
+    A_data  = requests.post(URL_reci,headers=header_reci,data=pres_query.format("draussen"),timeout=2).content
+    A_data  = A_data.decode("ascii").split(",")
+    try:
+        pres_A      = float(A_data[-4])
+    except:
+        pres_A      = 0.0
+    magtag.set_text("A {:.01f} hPa".format(pres_A),   auto_refresh = False,index=5)
+
+    now         = rtc.RTC().datetime
+    magtag.set_text("{:02d}.{:02d}.{:d} {:02d}:{:02d}".format(now.tm_mday,now.tm_mon,now.tm_year,now.tm_hour,now.tm_min),   auto_refresh = False,index=6)
+
+set_text()
+magtag.refresh()
+
+last_sec    = time.monotonic()
+
+while True:
+    if last_sec+2 <= time.monotonic():
+        last_sec = time.monotonic()
+        #Read current state of device
         temp        = bme.temperature
         hum         = bme.humidity
         pres        = bme.pressure
         gas         = bme.gas
-        time.sleep(1)
 
-    I_data  = requests.post(URL_reci,headers=header_reci,data=temp_query.format("esszimmer"),timeout=2).content
-    I_data  = I_data.decode("ascii").split(",")
-    magtag.set_text("I {:.02f} C".format(float(I_data[-4])),     auto_refresh = False,index=0)
+        data        = "{},sensor_id=BME680 temperature={},humidity={},pressure={},gas={} ".format(secrets["influx_name"],temp,hum,pres,gas)
+        requests.post(URL_send,headers=header_send,data=data,timeout=2)
 
-    I_data  = requests.post(URL_reci,headers=header_reci,data=humi_query.format("esszimmer"),timeout=2).content
-    I_data  = I_data.decode("ascii").split(",")
-    magtag.set_text("I {:.02f} %".format(float(I_data[-4])),      auto_refresh = False,index=1)
-    I_data  = requests.post(URL_reci,headers=header_reci,data=pres_query.format("esszimmer"),timeout=2).content
-    I_data  = I_data.decode("ascii").split(",")
-    magtag.set_text("I {:.01f} hPa".format(float(I_data[-4])),   auto_refresh = False,index=2)
+        #write the data to display
+        if  rtc.RTC().datetime.tm_min%2 == 0 and \
+            rtc.RTC().datetime.tm_sec <= 2:
+            set_text()
+            magtag.refresh()
 
-    A_data  = requests.post(URL_reci,headers=header_reci,data=temp_query.format("draussen"),timeout=2).content
-    A_data  = A_data.decode("ascii").split(",")
-    magtag.set_text("A {:.02f} C".format(float(A_data[-4])),     auto_refresh = False,index=3)
+        print(time.monotonic())
+        print(data)
 
-    A_data  = requests.post(URL_reci,headers=header_reci,data=humi_query.format("draussen"),timeout=2).content
-    A_data  = A_data.decode("ascii").split(",")
-    magtag.set_text("A {:.02f} %".format(float(A_data[-4])),      auto_refresh = False,index=4)
+    time.sleep(0.1)
 
-    A_data  = requests.post(URL_reci,headers=header_reci,data=pres_query.format("draussen"),timeout=2).content
-    A_data  = A_data.decode("ascii").split(",")
-    magtag.set_text("A {:.01f} hPa".format(float(A_data[-4])),   auto_refresh = False,index=5)
-
-    magtag.refresh()
-
-    last_sec    = time.monotonic()
-    last_disp   = time.monotonic()
-
-    while True:
-        if last_sec+2 <= time.monotonic():
-            last_sec = time.monotonic()
-            #Read current state of device
-            temp        = bme.temperature
-            hum         = bme.humidity
-            pres        = bme.pressure
-            gas         = bme.gas
-
-            data        = "{},sensor_id=BME680 temperature={},humidity={},pressure={},gas={} ".format(secrets["influx_name"],temp,hum,pres,gas)
-            requests.post(URL_send,headers=header_send,data=data,timeout=2)
-
-            #write the data to display
-            if time.monotonic()>= last_disp+120:
-                I_data  = requests.post(URL_reci,headers=header_reci,data=temp_query.format("esszimmer"),timeout=2).content
-                I_data  = I_data.decode("ascii").split(",")
-                magtag.set_text("I {:.02f} C".format(float(I_data[-4])),     auto_refresh = False,index=0)
-
-                I_data  = requests.post(URL_reci,headers=header_reci,data=humi_query.format("esszimmer"),timeout=2).content
-                I_data  = I_data.decode("ascii").split(",")
-                magtag.set_text("I {:.02f} %".format(float(I_data[-4])),      auto_refresh = False,index=1)
-                I_data  = requests.post(URL_reci,headers=header_reci,data=pres_query.format("esszimmer"),timeout=2).content
-                I_data  = I_data.decode("ascii").split(",")
-                magtag.set_text("I {:.01f} hPa".format(float(I_data[-4])),   auto_refresh = False,index=2)
-
-                A_data  = requests.post(URL_reci,headers=header_reci,data=temp_query.format("draussen"),timeout=2).content
-                A_data  = A_data.decode("ascii").split(",")
-                magtag.set_text("A {:.02f} C".format(float(A_data[-4])),     auto_refresh = False,index=3)
-
-                A_data  = requests.post(URL_reci,headers=header_reci,data=humi_query.format("draussen"),timeout=2).content
-                A_data  = A_data.decode("ascii").split(",")
-                magtag.set_text("A {:.02f} %".format(float(A_data[-4])),      auto_refresh = False,index=4)
-
-                A_data  = requests.post(URL_reci,headers=header_reci,data=pres_query.format("draussen"),timeout=2).content
-                A_data  = A_data.decode("ascii").split(",")
-                magtag.set_text("A {:.01f} hPa".format(float(A_data[-4])),   auto_refresh = False,index=5)
-                last_disp   = time.monotonic()
-                magtag.refresh()
-
-            print(time.monotonic())
-            print(data)
-
-        time.sleep(0.1)
-
-except:
-    supervisor.reload()
+#except:
+#    supervisor.reload()
 
