@@ -43,20 +43,23 @@ id_tag      = {"temp":0,
                 "gas":3,
                 "bat":4}
 
-#try:
-#Setup wifi
-wifi.radio.connect(secrets["ssid"], secrets["password"])
-pool = socketpool.SocketPool(wifi.radio)
-pool2= socketpool.SocketPool(wifi.radio)
-requests = adafruit_requests.Session(pool)
+try:
+    #Setup wifi
+    wifi.radio.connect(secrets["ssid"], secrets["password"])
+    pool = socketpool.SocketPool(wifi.radio)
+    pool2= socketpool.SocketPool(wifi.radio)
+    requests = adafruit_requests.Session(pool)
 
-ntp = adafruit_ntp.NTP(pool2,server=secrets["server_ip"],tz_offset=+2)
-print(ntp.datetime)
-rtc.RTC().datetime    = ntp.datetime
+    ntp = adafruit_ntp.NTP(pool2,server=secrets["server_ip"],tz_offset=+2)
+    print(ntp.datetime)
+    rtc.RTC().datetime    = ntp.datetime
 
-#Set all I2C devices
-i2c         = busio.I2C(board.SCL,board.SDA,frequency=100000)
-bme         = adafruit_bme680.Adafruit_BME680_I2C(i2c)
+    #Set all I2C devices
+    i2c         = busio.I2C(board.SCL,board.SDA,frequency=100000)
+    bme         = adafruit_bme680.Adafruit_BME680_I2C(i2c)
+except:
+    print("Something went wrong during setup")
+    supervisor.reload()
 
 #Setup MagTag
 magtag = MagTag(rotation=90)
@@ -130,49 +133,49 @@ for i in range(3):
     time.sleep(1)
 
 def set_text():
-    I_data  = requests.post(URL_reci,headers=header_reci,data=temp_query.format("esszimmer"),timeout=2).content
-    I_data  = I_data.decode("ascii").split(",")
     try:
+        I_data  = requests.post(URL_reci,headers=header_reci,data=temp_query.format("esszimmer"),timeout=2).content
+        I_data  = I_data.decode("ascii").split(",")
         temp_I      = float(I_data[-4])
     except:
         temp_I      = temp
     magtag.set_text("I {:.02f} C".format(temp_I),     auto_refresh = False,index=0)
 
-    I_data  = requests.post(URL_reci,headers=header_reci,data=humi_query.format("esszimmer"),timeout=2).content
-    I_data  = I_data.decode("ascii").split(",")
     try:
+        I_data  = requests.post(URL_reci,headers=header_reci,data=humi_query.format("esszimmer"),timeout=2).content
+        I_data  = I_data.decode("ascii").split(",")
         hum_I       = float(I_data[-4])
     except:
         hum_I       = hum
     magtag.set_text("I {:.02f} %".format(hum_I),      auto_refresh = False,index=1)
 
-    I_data  = requests.post(URL_reci,headers=header_reci,data=pres_query.format("esszimmer"),timeout=2).content
-    I_data  = I_data.decode("ascii").split(",")
     try:
+        I_data  = requests.post(URL_reci,headers=header_reci,data=pres_query.format("esszimmer"),timeout=2).content
+        I_data  = I_data.decode("ascii").split(",")
         pres_I      = float(I_data[-4])
     except:
         pres_I      = pres
     magtag.set_text("I {:.01f} hPa".format(pres_I),   auto_refresh = False,index=2)
 
-    A_data  = requests.post(URL_reci,headers=header_reci,data=temp_query.format("draussen"),timeout=2).content
-    A_data  = A_data.decode("ascii").split(",")
     try:
+        A_data  = requests.post(URL_reci,headers=header_reci,data=temp_query.format("draussen"),timeout=2).content
+        A_data  = A_data.decode("ascii").split(",")
         temp_A      = float(A_data[-4])
     except:
         temp_A      = -273.0
     magtag.set_text("A {:.02f} C".format(temp_A),     auto_refresh = False,index=3)
 
-    A_data  = requests.post(URL_reci,headers=header_reci,data=humi_query.format("draussen"),timeout=2).content
-    A_data  = A_data.decode("ascii").split(",")
     try:
+        A_data  = requests.post(URL_reci,headers=header_reci,data=humi_query.format("draussen"),timeout=2).content
+        A_data  = A_data.decode("ascii").split(",")
         hum_A       = float(A_data[-4])
     except:
         hum_A       = 0.0
     magtag.set_text("A {:.02f} %".format(hum_A),      auto_refresh = False,index=4)
 
-    A_data  = requests.post(URL_reci,headers=header_reci,data=pres_query.format("draussen"),timeout=2).content
-    A_data  = A_data.decode("ascii").split(",")
     try:
+        A_data  = requests.post(URL_reci,headers=header_reci,data=pres_query.format("draussen"),timeout=2).content
+        A_data  = A_data.decode("ascii").split(",")
         pres_A      = float(A_data[-4])
     except:
         pres_A      = 0.0
@@ -196,7 +199,11 @@ while True:
         gas         = bme.gas
 
         data        = "{},sensor_id=BME680 temperature={},humidity={},pressure={},gas={} ".format(secrets["influx_name"],temp,hum,pres,gas)
-        requests.post(URL_send,headers=header_send,data=data,timeout=2)
+        try:
+            requests.post(URL_send,headers=header_send,data=data,timeout=2)
+        except:
+            print("HTTP POST went wrong")
+            supervisor.reload()
 
         #write the data to display
         if  rtc.RTC().datetime.tm_min%2 == 0 and \
@@ -204,11 +211,7 @@ while True:
             set_text()
             magtag.refresh()
 
-        print(time.monotonic())
-        print(data)
+        print(time.monotonic(),data)
 
     time.sleep(0.1)
-
-#except:
-#    supervisor.reload()
 

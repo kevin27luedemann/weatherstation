@@ -1,0 +1,3 @@
+Adafruit CircuitPython 7.3.1 on 2022-06-22; Adafruit Feather ESP32S2 with ESP32S2
+Board ID:adafruit_feather_esp32s2
+boot.py Ausgabe:
