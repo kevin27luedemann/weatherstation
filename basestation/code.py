@@ -14,7 +14,16 @@ import wifi
 import socketpool
 import ipaddress
 import supervisor
+import microcontroller
+from watchdog import WatchDogMode
 from secrets import secrets
+
+#Set watchdog
+wd          = microcontroller.watchdog
+wd.timeout  = 10
+wd.mode     = WatchDogMode.RESET
+wd.feed()
+
 
 #Define some important constants
 URL_send    = "http://{}:8086/api/v2/write?org={}&bucket={}&precision=ns".format(secrets["server_ip"],secrets["influx_org"],secrets["influx_bucket"])
@@ -49,17 +58,20 @@ try:
     pool = socketpool.SocketPool(wifi.radio)
     pool2= socketpool.SocketPool(wifi.radio)
     requests = adafruit_requests.Session(pool)
+    wd.feed()
 
     ntp = adafruit_ntp.NTP(pool2,server=secrets["server_ip"],tz_offset=+2)
     print(ntp.datetime)
     rtc.RTC().datetime    = ntp.datetime
 
+    wd.feed()
     #Set all I2C devices
     i2c         = busio.I2C(board.SCL,board.SDA,frequency=100000)
     bme         = adafruit_bme680.Adafruit_BME680_I2C(i2c)
 except:
     print("Something went wrong during setup")
     supervisor.reload()
+wd.feed()
 
 #Setup MagTag
 magtag = MagTag(rotation=90)
@@ -123,6 +135,7 @@ magtag.add_text( #Date and time
     text_anchor_point=(0,0),
     is_data=False
 )
+wd.feed()
 
 #Initial read
 for i in range(3):
@@ -131,6 +144,7 @@ for i in range(3):
     pres        = bme.pressure
     gas         = bme.gas
     time.sleep(1)
+    wd.feed()
 
 def set_text():
     try:
@@ -189,6 +203,7 @@ magtag.refresh()
 
 last_sec    = time.monotonic()
 
+wd.feed()
 while True:
     if last_sec+2 <= time.monotonic():
         last_sec = time.monotonic()
@@ -206,12 +221,13 @@ while True:
             supervisor.reload()
 
         #write the data to display
-        if  rtc.RTC().datetime.tm_min%2 == 0 and \
+        if  rtc.RTC().datetime.tm_sec >= 0 and \
             rtc.RTC().datetime.tm_sec <= 2:
             set_text()
             magtag.refresh()
 
         print(time.monotonic(),data)
 
+    wd.feed()
     time.sleep(0.1)
 
