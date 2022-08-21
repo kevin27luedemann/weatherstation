@@ -20,7 +20,7 @@ from secrets import secrets
 
 #Set watchdog
 wd          = microcontroller.watchdog
-wd.timeout  = 10
+wd.timeout  = 20
 wd.mode     = WatchDogMode.RESET
 wd.feed()
 
@@ -35,6 +35,10 @@ temp_query  = 'from(bucket: "wetter") |> range(start: -5m) |> filter(fn: (r) => 
 humi_query  = 'from(bucket: "wetter") |> range(start: -5m) |> filter(fn: (r) => r["_measurement"] == "{}") |> filter(fn: (r) => r["_field"] == "humidity") |> aggregateWindow(every: 5m, fn: mean, createEmpty: false) |> yield(name: "mean")'
 
 pres_query  = 'from(bucket: "wetter") |> range(start: -5m) |> filter(fn: (r) => r["_measurement"] == "{}") |> filter(fn: (r) => r["_field"] == "pressure") |> aggregateWindow(every: 5m, fn: mean, createEmpty: false) |> yield(name: "mean")'
+
+wind_query  = 'from(bucket: "wetter") |> range(start: -5m) |> filter(fn: (r) => r["_measurement"] == "{}") |> filter(fn: (r) => r["_field"] == "wind_speed") |> aggregateWindow(every: 5m, fn: mean, createEmpty: false) |> yield(name: "mean")'
+
+rain_query  = 'from(bucket: "wetter") |> range(start: -24h) |> filter(fn: (r) => r["_measurement"] == "{}") |> filter(fn: (r) => r["_field"] == "water_mm") |> aggregateWindow(every: 24h, fn: sum, createEmpty: false) |> yield(name: "sum")'
 
 header_send = {"Authorization": "Token {}".format(secrets["influx_token"]),
                 "Content-Type": "text/plain; charset=utf-8",
@@ -95,36 +99,43 @@ magtag.add_text( #Temperature inside
 )
 magtag.add_text( #Humidity inside
     text_font=terminalio.FONT,
-    text_position=(10,50),
+    text_position=(10,45),
     text_scale=2,
     text_anchor_point=(0,0),
     is_data=False
 )
 magtag.add_text( #Pressure inside
     text_font=terminalio.FONT,
-    text_position=(10,80),
-    text_scale=1,
+    text_position=(10,70),
+    text_scale=2,
     text_anchor_point=(0,0),
     is_data=False
 )
 magtag.add_text( #Temperature outside
     text_font=terminalio.FONT,
-    text_position=(magtag.graphics.display.width-10,20),
+    text_position=(magtag.graphics.display.width-20,20),
     text_scale=2,
     text_anchor_point=(1,0),
     is_data=False
 )
 magtag.add_text( #Humidity outside
     text_font=terminalio.FONT,
-    text_position=(magtag.graphics.display.width-10,50),
+    text_position=(magtag.graphics.display.width-20,45),
     text_scale=2,
     text_anchor_point=(1,0),
     is_data=False
 )
-magtag.add_text( #Pressure outside
+magtag.add_text( #Rain outside
     text_font=terminalio.FONT,
-    text_position=(magtag.graphics.display.width-10,80),
-    text_scale=1,
+    text_position=(magtag.graphics.display.width-20,70),
+    text_scale=2,
+    text_anchor_point=(1,0),
+    is_data=False
+)
+magtag.add_text( #Wind outside
+    text_font=terminalio.FONT,
+    text_position=(magtag.graphics.display.width-10,90),
+    text_scale=2,
     text_anchor_point=(1,0),
     is_data=False
 )
@@ -169,7 +180,7 @@ def set_text():
         pres_I      = float(I_data[-4])
     except:
         pres_I      = pres
-    magtag.set_text("I {:.01f} hPa".format(pres_I),   auto_refresh = False,index=2)
+    magtag.set_text("{:.01f} hPa".format(pres_I),   auto_refresh = False,index=2)
 
     try:
         A_data  = requests.post(URL_reci,headers=header_reci,data=temp_query.format("draussen"),timeout=2).content
@@ -188,15 +199,23 @@ def set_text():
     magtag.set_text("A {:.02f} %".format(hum_A),      auto_refresh = False,index=4)
 
     try:
-        A_data  = requests.post(URL_reci,headers=header_reci,data=pres_query.format("draussen"),timeout=2).content
+        A_data  = requests.post(URL_reci,headers=header_reci,data=rain_query.format("draussen"),timeout=2).content
         A_data  = A_data.decode("ascii").split(",")
-        pres_A      = float(A_data[-4])
+        rain_A      = float(A_data[-4])
     except:
-        pres_A      = 0.0
-    magtag.set_text("A {:.01f} hPa".format(pres_A),   auto_refresh = False,index=5)
+        rain_A      = 0.0
+    magtag.set_text("{:.01f} mm".format(rain_A),   auto_refresh = False,index=5)
+
+    try:
+        A_data  = requests.post(URL_reci,headers=header_reci,data=wind_query.format("draussen"),timeout=2).content
+        A_data  = A_data.decode("ascii").split(",")
+        wind_A  = float(A_data[-4])*3.6
+    except:
+        wind_A      = 0.0
+    magtag.set_text("{:.01f} km/h".format(wind_A),   auto_refresh = False,index=6)
 
     now         = rtc.RTC().datetime
-    magtag.set_text("{:02d}.{:02d}.{:d} {:02d}:{:02d}".format(now.tm_mday,now.tm_mon,now.tm_year,now.tm_hour,now.tm_min),   auto_refresh = False,index=6)
+    magtag.set_text("{:02d}.{:02d}.{:d} {:02d}:{:02d}".format(now.tm_mday,now.tm_mon,now.tm_year,now.tm_hour,now.tm_min),   auto_refresh = False,index=7)
 
 set_text()
 magtag.refresh()
@@ -208,10 +227,14 @@ while True:
     if last_sec+2 <= time.monotonic():
         last_sec = time.monotonic()
         #Read current state of device
-        temp        = bme.temperature
-        hum         = bme.humidity
-        pres        = bme.pressure
-        gas         = bme.gas
+        try:
+            temp        = bme.temperature
+            hum         = bme.humidity
+            pres        = bme.pressure
+            gas         = bme.gas
+        except:
+            print("I2C problems")
+            supervisor.reload()
 
         data        = "{},sensor_id=BME680 temperature={},humidity={},pressure={},gas={} ".format(secrets["influx_name"],temp,hum,pres,gas)
         try:
