@@ -15,7 +15,15 @@ import socketpool
 import ipaddress
 import countio
 import digitalio
+import microcontroller
+from watchdog import WatchDogMode
 from secrets import secrets
+
+#Set watchdog
+wd          = microcontroller.watchdog
+wd.timeout  = 10
+wd.mode     = WatchDogMode.RESET
+wd.feed()
 
 #Define some important constants
 URL         = "http://{}:8086/api/v2/write?org={}&bucket={}&precision=ns".format(secrets["server_ip"],secrets["influx_org"],secrets["influx_bucket"])
@@ -37,30 +45,8 @@ ADC_max_cou     = 51931
 ADC_max_vol     = 2.57
 #mm of rain per count
 bucket_content  = 0.2794
-
-def packf(var):
-    return struct.pack("f",var)
-
-def unpackf(var):
-    return struct.unpack("f",var)
-
-def packb(var):
-    return struct.pack("b",var)
-
-def unpackb(var):
-    return struct.unpack("b",var)
-
-def index_pos(tag,hour,Bytse=4):
-    global max_data
-    return tag*max_data*Bytes+hour*Bytes
-
-def slice_pos(tag,hour,Bytes=4):
-    global max_data
-    return slice(int(tag*max_data*Bytes+hour*Bytes),int(tag*max_data*Bytes+hour*Bytes+Bytes))
-
-def count_pos(tag,hour,Bytes=4):
-    global max_data
-    return slice(tag*max_data*Bytes+hour,tag*max_data*Bytes+hour+1)
+#Windspeed per count
+speed_per_count=2/3
 
 def get_max(tag,eep,Bytes=4):
     val     = unpackf(eep[slice_pos(tag,0,Bytes=Bytes)])
@@ -75,7 +61,7 @@ def get_min(tag,eep,Bytes=4):
     return val
 
 #speed in m/s
-def get_wind_Speed(pin,speed_per_count=2/3):
+def get_wind_Speed(pin):
     start   = time.monotonic_ns()
     stop    = start
     while not(pin.value) and stop-start < 1e9:
@@ -92,7 +78,7 @@ def get_wind_Speed(pin,speed_per_count=2/3):
     if stop-start >= 3e9:
         return 0
     else:
-        return speed_per_count/((stop-start)*1e-9)
+        return 1/((stop-start)*1e-9)
 
 
 #Setup wifi
@@ -100,16 +86,19 @@ wifi.radio.connect(secrets["ssid"], secrets["password"])
 pool = socketpool.SocketPool(wifi.radio)
 requests = adafruit_requests.Session(pool)
 
+wd.feed()
 #Set all I2C devices
 i2c         = busio.I2C(board.SCL,board.SDA,frequency=100000)
 bme         = adafruit_bme680.Adafruit_BME680_I2C(i2c)
 
+wd.feed()
 #Initial read
 for i in range(3):
     temp        = bme.temperature
     hum         = bme.humidity
     pres        = bme.pressure
     gas         = bme.gas
+    wd.feed()
     time.sleep(1)
 
 #Setup analog read
@@ -118,39 +107,51 @@ water_bucket    = countio.Counter(board.A2, edge=countio.Edge.RISE)
 wind_speed      = digitalio.DigitalInOut(board.A1)
 wind_speed.switch_to_input()
 
+wd.feed()
 last_sec = time.monotonic()
 while True:
     if last_sec+2 <= time.monotonic():
         last_sec = time.monotonic()
         if water_bucket.count > 0:
-            bucket  = bucket_content
+            bucket  = water_bucket.count
             water_bucket.reset()
         else:
             bucket  = 0
-        data2       = "{},sensor_id=wind_water direction_raw={} water_raw={} wind_raw={}".format(secrets["influx_name"],wind_direction.value*ADC_max_vol/ADC_max_cou,bucket,get_wind_Speed(wind_speed))
-        #water_bucket.reset()
-        #try:
-        #    requests.post(URL,headers=header,data=data2,timeout=2)
-        #except:
-        #    print("post did not work")
+        try:
+            rotation_rate   = get_wind_Speed(wind_speed)
+            direction_volt  = wind_direction.value*ADC_max_vol/ADC_max_cou
+        except:
+            print("Some wrong with wind station")
+            supervisor.reload()
+        data2       = "{},sensor_id=wind_water direction_raw={},water_raw={},water_mm={},wind_raw={},wind_speed={}".format(secrets["influx_name"],direction_volt,bucket,bucket*bucket_content,rotation_rate,rotation_rate*speed_per_count)
+        try:
+            requests.post(URL,headers=header,data=data2,timeout=2)
+        except:
+            print("post did not work")
+            supervisor.reload()
 
 
         #Read current state of device
-        temp        = bme.temperature
-        hum         = bme.humidity
-        pres        = bme.pressure
-        gas         = bme.gas
+        try:
+            temp        = bme.temperature
+            hum         = bme.humidity
+            pres        = bme.pressure
+            gas         = bme.gas
+        except:
+            print("I2C problems")
+            supervisor.reload()
 
         data        = "{},sensor_id=BME680 temperature={},humidity={},pressure={},gas={} ".format(secrets["influx_name"],temp,hum,pres,gas)
-        #try:
-        #    requests.post(URL,headers=header,data=data,timeout=2)
-        #except:
-        #    print("post did not work")
+        try:
+            requests.post(URL,headers=header,data=data,timeout=2)
+        except:
+            print("post did not work")
+            supervisor.reload()
 
         print(time.monotonic())
         print(data)
         print(data2)
 
-
+    wd.feed()
     time.sleep(0.1)
 
