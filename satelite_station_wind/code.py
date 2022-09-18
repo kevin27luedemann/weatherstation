@@ -16,6 +16,7 @@ import ipaddress
 import countio
 import digitalio
 import microcontroller
+import supervisor
 from watchdog import WatchDogMode
 from secrets import secrets
 
