@@ -64,7 +64,7 @@ try:
     requests = adafruit_requests.Session(pool)
     wd.feed()
 
-    ntp = adafruit_ntp.NTP(pool2,server=secrets["server_ip"],tz_offset=+2)
+    ntp = adafruit_ntp.NTP(pool2,server=secrets["server_ip"],tz_offset=+1)
     print(ntp.datetime)
     rtc.RTC().datetime    = ntp.datetime
 
